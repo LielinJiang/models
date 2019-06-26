@@ -164,7 +164,14 @@ def preprocess(img, bbox_labels, mode, settings):
 
 def coco(settings, coco_api, file_list, mode, batch_size, shuffle, data_dir):
     from pycocotools.coco import COCO
-
+    json_category_id_to_contiguous_id = {
+        v: i + 1
+        for i, v in enumerate(coco_api.getCatIds())
+    }
+    contiguous_category_id_to_json_id = {
+        v: k
+        for k, v in json_category_id_to_contiguous_id.items()
+    }
     def reader():
         if mode == 'train' and shuffle:
             np.random.shuffle(file_list)
@@ -188,7 +195,7 @@ def coco(settings, coco_api, file_list, mode, batch_size, shuffle, data_dir):
             for ann in anns:
                 bbox_sample = []
                 # start from 1, leave 0 to background
-                bbox_sample.append(float(ann['category_id']))
+                bbox_sample.append(float(json_category_id_to_contiguous_id[ann['category_id']]))
                 bbox = ann['bbox']
                 xmin, ymin, w, h = bbox
                 xmax = xmin + w
@@ -222,6 +229,22 @@ def coco(settings, coco_api, file_list, mode, batch_size, shuffle, data_dir):
 
     return reader
 
+
+def get_coco_id_map(coco_api):
+    #category_ids = coco_api.getCatIds()
+    #categories = [c['name'] for c in coco_api.loadCats(category_ids)]
+    #category_to_id_map = dict(zip(categories, category_ids))
+    #classes = ['__background__'] + categories
+    #num_classes = len(classes)
+    json_category_id_to_contiguous_id = {
+        v: i + 1
+        for i, v in enumerate(coco_api.getCatIds())
+    }
+    contiguous_category_id_to_json_id = {
+        v: k
+        for k, v in json_category_id_to_contiguous_id.items()
+    }
+    return json_category_id_to_contiguous_id, contiguous_category_id_to_json_id
 
 def pascalvoc(settings, file_list, mode, batch_size, shuffle):
     def reader():

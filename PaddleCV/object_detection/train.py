@@ -55,11 +55,11 @@ train_parameters = {
     "coco2017": {
         "train_images": 118287,
         "image_shape": [3, 300, 300],
-        "class_num": 91,
+        "class_num": 81,
         "batch_size": 64,
         "lr": 0.001,
-        "lr_epochs": [12, 19],
-        "lr_decay": [1, 0.5, 0.25],
+        "lr_epochs": [5, 20],
+        "lr_decay": [1, 0.1, 0.01],
         "ap_version": 'integral', # should use eval_coco_map.py to test model
     }
 }
@@ -103,8 +103,24 @@ def build_program(main_prog, startup_prog, train_params, is_train):
                 outs = [py_reader, loss]
             else:
                 with fluid.unique_name.guard("inference"):
-                    nmsed_out = fluid.layers.detection_output(
-                        locs, confs, box, box_var, nms_threshold=0.45)
+                    # nmsed_out = fluid.layers.detection_output(
+                    #     locs, confs, box, box_var, nms_threshold=0.45)
+                    decoded_box = fluid.layers.box_coder(
+                        prior_box=box,
+                        prior_box_var=box_var,
+                        target_box=locs,
+                        code_type='decode_center_size')
+                    scores = fluid.layers.softmax(input=confs)
+                    scores = fluid.layers.transpose(scores, perm=[0, 2, 1])
+                    scores.stop_gradient = True
+                    nmsed_out = fluid.layers.multiclass_nms(
+                        bboxes=decoded_box,
+                        scores=scores,
+                        score_threshold=0.1,
+                        nms_top_k=-1,
+                        nms_threshold=0.45,
+                        keep_top_k=-1,
+                        normalized=False)
                     map_eval = fluid.metrics.DetectionMAP(
                         nmsed_out,
                         gt_label,
@@ -115,7 +131,7 @@ def build_program(main_prog, startup_prog, train_params, is_train):
                         evaluate_difficult=False,
                         ap_version=ap_version)
                 # nmsed_out and image is used to save mode for inference
-                outs = [py_reader, map_eval, nmsed_out, image]
+                outs = [py_reader, map_eval, nmsed_out, image, decoded_box, scores]
     return outs
 
 
@@ -141,7 +157,7 @@ def train(args,
     batch_size = train_params['batch_size']
     epoc_num = train_params['epoc_num']
     batch_size_per_device = batch_size // devices_num
-    num_workers = 8
+    num_workers = 4
 
     startup_prog = fluid.Program()
     train_prog = fluid.Program()
@@ -161,7 +177,7 @@ def train(args,
         startup_prog=startup_prog,
         train_params=train_params,
         is_train=True)
-    test_py_reader, map_eval, _, _ = build_program(
+    test_py_reader, map_eval, _, image, boxes, scores = build_program(
         main_prog=test_prog,
         startup_prog=startup_prog,
         train_params=train_params,
@@ -202,6 +218,14 @@ def train(args,
         print('save models to %s' % (model_path))
         fluid.io.save_persistables(exe, model_path, main_program=main_prog)
 
+    def save_inference_model(postfix, main_prog, feeded_var_names, target_vars):
+        model_path = os.path.join(model_save_dir, postfix)
+        if os.path.isdir(model_path):
+            shutil.rmtree(model_path)
+        print('save models to %s' % (model_path))
+        fluid.io.save_inference_model(model_path, feeded_var_names=feeded_var_names, \
+                                target_vars=target_vars, executor=exe, main_program=main_prog)
+
     best_map = 0.
     def test(epoc_id, best_map):
         _, accum_map = map_eval.get_map_var()
@@ -222,7 +246,9 @@ def train(args,
         print("Epoc {0}, test map {1}".format(epoc_id, test_map[0]))
         if test_map[0] > best_map:
             best_map = test_map[0]
-            save_model('best_model', test_prog)
+            feeded_var_names = [image.name]
+            target_vars = [boxes, scores]
+            save_inference_model('best_model', test_prog, feeded_var_names, target_vars)
         return best_map, mean_map
 
 
@@ -262,7 +288,7 @@ def train(args,
 
         end_time = time.time()
         total_time += end_time - start_time
-        if epoc_id % 10 == 0 or epoc_id == epoc_num - 1:
+        if epoc_id % 1 == 0 or epoc_id == epoc_num - 1:
             best_map, mean_map = test(epoc_id, best_map)
             print("Best test map {0}".format(best_map))
             # save model

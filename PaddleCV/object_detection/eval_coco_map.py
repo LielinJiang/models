@@ -1,4 +1,6 @@
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["FLAGS_fraction_of_gpu_memory_to_use"] = "0.2"
 import time
 import numpy as np
 import argparse
@@ -7,7 +9,7 @@ import functools
 import paddle
 import paddle.fluid as fluid
 import reader
-from mobilenet_ssd import mobile_net
+from mobilenet_ssd import build_mobilenet_ssd
 from utility import add_arguments, print_arguments
 
 # A special mAP metric for COCO dataset, which averages AP in different IoUs.
@@ -49,11 +51,28 @@ def eval(args, data_args, test_list, batch_size, model_dir=None):
     gt_image_info = fluid.layers.data(
         name='gt_image_id', shape=[3], dtype='int32')
 
-    locs, confs, box, box_var = mobile_net(num_classes, image, image_shape)
-    nmsed_out = fluid.layers.detection_output(
-        locs, confs, box, box_var, nms_threshold=args.nms_threshold)
-    loss = fluid.layers.ssd_loss(locs, confs, gt_box, gt_label, box, box_var)
-    loss = fluid.layers.reduce_sum(loss)
+    locs, confs, box, box_var = build_mobilenet_ssd(image, num_classes, image_shape)
+    # nmsed_out = fluid.layers.detection_output(
+    #     locs, confs, box, box_var, nms_threshold=args.nms_threshold)
+    # loss = fluid.layers.ssd_loss(locs, confs, gt_box, gt_label, box, box_var)
+    # loss = fluid.layers.reduce_sum(loss)
+    decoded_box = fluid.layers.box_coder(
+        prior_box=box,
+        prior_box_var=box_var,
+        target_box=locs,
+        code_type='decode_center_size')
+    scores = fluid.layers.nn.softmax(input=confs)
+    scores = fluid.layers.nn.transpose(scores, perm=[0, 2, 1])
+    scores.stop_gradient = True
+
+    nmsed_out = fluid.layers.multiclass_nms(
+        bboxes=decoded_box,
+        scores=scores,
+        score_threshold=0.01,
+        nms_top_k=-1,
+        nms_threshold=0.45,
+        keep_top_k=200,
+        normalized=False)
 
     place = fluid.CUDAPlace(0) if args.use_gpu else fluid.CPUPlace()
     exe = fluid.Executor(place)
