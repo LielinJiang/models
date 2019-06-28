@@ -16,3 +16,4 @@ from .se_resnext_vd import SE_ResNeXt50_32x4d_vd, SE_ResNeXt101_32x4d_vd, SE154_
 from .dpn import DPN68, DPN92, DPN98, DPN107, DPN131
 from .shufflenet_v2 import ShuffleNetV2, ShuffleNetV2_x0_5_swish, ShuffleNetV2_x1_0_swish, ShuffleNetV2_x1_5_swish, ShuffleNetV2_x2_0_swish, ShuffleNetV2_x8_0_swish
 from .fast_imagenet import FastImageNet
+from .efficientnet import EfficientNet

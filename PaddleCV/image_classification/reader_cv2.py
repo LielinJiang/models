@@ -164,7 +164,8 @@ def process_image(
 
     img_path = sample[0]
     img = cv2.imread(img_path)
-
+    if img is None:
+        print(img_path)
     if mode == 'train':
         if rotate:
             img = rotate_image(img)
@@ -268,7 +269,7 @@ def train(settings, data_dir=DATA_DIR, pass_id_as_seed=0):
 def val(settings,data_dir=DATA_DIR):
     file_list = os.path.join(data_dir, 'val_list.txt')
     return _reader_creator(settings ,file_list, 'val', shuffle=False, 
-            data_dir=data_dir)
+            data_dir=os.path.join(data_dir, 'val'))
 
 
 def test(settings,data_dir=DATA_DIR):
